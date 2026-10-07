@@ -1,0 +1,23 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v5
+      - name: Тесты
+        run: bash scripts/test.sh
+      - name: Сборка образа
+        run: bash scripts/package-dmg.sh
+      - name: Единственный адрес в программе — страница проекта
+        run: |
+          BIN="build/Точка.app/Contents/MacOS/Tochka"
+          test "$(strings -a "$BIN" | grep -i -E 'https?://' | sort -u)" = "https://github.com/rolexx671/Tochka"

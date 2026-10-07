@@ -1,0 +1,57 @@
+name: Release
+
+# Builds Tochka.dmg on GitHub's machines from the tagged commit and publishes it with a
+# build-provenance attestation, so anyone can verify the download came from this repository:
+#   gh attestation verify Tochka.dmg --repo rolexx671/Tochka
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: write
+  id-token: write
+  attestations: write
+
+jobs:
+  release:
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v5
+      - name: Тег совпадает с версией
+        run: |
+          source scripts/version.env
+          test "${GITHUB_REF_NAME}" = "v${TOCHKA_VERSION}" || { echo "Тег ${GITHUB_REF_NAME} не совпадает с версией ${TOCHKA_VERSION} в scripts/version.env"; exit 1; }
+      - name: Тесты
+        run: bash scripts/test.sh
+      - name: Сборка образа
+        run: bash scripts/package-dmg.sh
+      - name: Единственный адрес в программе — страница проекта
+        run: |
+          BIN="build/Точка.app/Contents/MacOS/Tochka"
+          test "$(strings -a "$BIN" | grep -i -E 'https?://' | sort -u)" = "https://github.com/rolexx671/Tochka"
+      - name: Аттестация происхождения
+        uses: actions/attest-build-provenance@v3
+        with:
+          subject-path: dist/Tochka.dmg
+      - name: Публикация релиза
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          source scripts/version.env
+          SHA=$(cut -d' ' -f1 dist/Tochka.dmg.sha256)
+          cat > notes.md <<NOTES
+          **[Скачать Tochka.dmg](https://github.com/${GITHUB_REPOSITORY}/releases/download/${GITHUB_REF_NAME}/Tochka.dmg)** · macOS 13+ · Apple Silicon и Intel
+
+          Образ собран GitHub Actions из коммита ${GITHUB_SHA} ([журнал сборки](${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID})).
+
+          Проверить, что файл собран из этого репозитория:
+          \`\`\`
+          gh attestation verify Tochka.dmg --repo ${GITHUB_REPOSITORY}
+          \`\`\`
+          SHA-256: \`${SHA}\`
+
+          При первом запуске macOS попросит подтверждение: «Системные настройки → Конфиденциальность и безопасность → Всё равно открыть». [Почему](${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/blob/main/PRIVACY.md#почему-macos-предупреждает-при-первом-запуске).
+          NOTES
+          sed -i '' 's/^          //' notes.md
+          gh release create "${GITHUB_REF_NAME}" dist/Tochka.dmg dist/Tochka.dmg.sha256 \
+            --title "Точка ${TOCHKA_VERSION}" --notes-file notes.md
